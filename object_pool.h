@@ -3,6 +3,13 @@
 #include "pch.h"
 #include "framework.h"
 
+#ifndef __P_OBJECT_POOL__
+#define __P_OBJECT_POOL__
+
+#include <cstdlib>
+#include <stdexcept>
+#include <type_traits>
+
 template<typename object_type>
 class object_class;
 
@@ -14,15 +21,6 @@ class object_list_ptr;
 
 template<typename object_type>
 class object_pool;
-
-/*template<typename T>
-bool _is_class()
-{
-	return requires(T obj)
-	{
-		obj.~object_type();
-	};
-}*/
 
 template<typename object_type>
 class object_class
@@ -93,11 +91,7 @@ public:
 		delete_object();
 	}
 
-#ifdef _DEBUG
-	object_class() = default;
-#else
 	object_class() = delete;
-#endif // _DEBUG
 
 	object_class(object_type* _pobj)
 	{
@@ -179,11 +173,92 @@ public:
 		valid = false;
 	}
 
-	object_type* raw_ptr() const
+	object_type* unsafe_ptr() const
 	{
 		return pobj_class->get_object();
 	}
 	
+};
+
+template<typename object_type>
+class object_list_ptr
+{
+protected:
+	typedef object_class<object_type>  obj_class;
+	typedef object_ptr<object_type>  obj_ptr;
+	typedef object_list_ptr<object_type> obj_list_ptr;
+
+protected:
+	size_t __size;
+	size_t __end;
+	obj_ptr* ptr_list;
+
+protected:
+	template<typename... Args>
+	void add_obj(obj_class* _pclass, Args&& ... args)
+	{
+		if (__end >= size) throw overflow_error("Too many objects!");
+		new(ptr_list + __end) obj_ptr(_pclass, std::forward<Args>(args)...);
+		end++;
+	}
+
+public:
+	
+	object_list_ptr& operator=(const obj_list_ptr& src)
+	{
+		__size = src.__size;
+		__end = src.__end;
+		auto last_list = ptr_list;
+		ptr_list = malloc(_size * sizeof(obj_ptr));
+		if (!ptr_list) throw bad_alloc();
+		for (int i = 0; i < __end; i++)
+		{
+			new(ptr_list + i) obj_ptr(src.ptr_list[i]);
+		}
+		for (int i = 0; i < __end; i++)
+		{
+			last_list[i].~obj_ptr();
+			free(last_list);
+		}
+		return *this;
+	}
+
+	object_type& operator[](size_t index) const
+	{
+		if (index >= __size) throw out_of_range("Index out of range!");
+		return *(ptr_list[index]);
+	}
+
+	obj_ptr get_ptr(size_t index) const
+	{
+		return ptr_list[index];
+	}
+
+	size_t size() const
+	{
+		return __size;
+	}
+
+	object_list_ptr(size_t _size) :__size(_size), __end(0)
+	{
+		ptr_list = malloc(_size * sizeof(obj_ptr));
+		if (!ptr_list) throw bad_alloc();
+	}
+
+	object_list_ptr(const obj_list_ptr& src)
+	{
+		*this = src;
+	}
+	
+	virtual ~object_list_ptr()
+	{
+		for (int i = 0; i < __end; i++)
+		{
+			ptr_list[i].~obj_ptr();
+		}
+		free(ptr_list);
+	}
+
 };
 
 template<typename object_type>
@@ -192,6 +267,7 @@ class object_pool
 protected:
 	typedef object_pool<object_type> obj_pool;
 	typedef object_ptr<object_type> obj_ptr;
+	typedef object_list_ptr<object_type> obj_list_ptr;
 	typedef object_class<object_type> obj_class;
 
 protected:
@@ -331,4 +407,52 @@ public:
 		}
 		return obj_ptr(&(last_class->this_obj), std::forward<Args>(args)...);
 	}
+
+	template<typename... Args>
+	obj_list_ptr get_object_list(size_t count, Args&& ... args)
+	{
+		if (count == 0) throw runtime_error("Count cannot be 0!");
+		auto pre_class = last_class;
+		bool succeeded = false;
+		succeeded = create_objects(count);
+		if (!succeeded)
+			gc();
+		succeeded = create_objects(count);
+		while (!succeeded)
+		{
+			extend();
+			succeeded = create_objects(count);
+		}
+
+		obj_list_ptr plist(count);
+		auto pcur = pre_class->next;
+		for (int i = 0; i < count; i++)
+		{
+			plist.add_obj(obj_ptr(&(last_class->this_obj), std::forward<Args>(args)...));
+			pcur = pcur->next;
+		}
+
+		return plist;
+	}
+	
+	bool shrink(bool forced = false)
+	{
+		gc();
+		if (!forced && used * 2 > current_capacity) 
+			return false;
+		void* pnew = malloc(used * object_size);
+		if (pnew == NULL) throw bad_alloc();
+		memcpy(pnew, memory_pool, used * object_size);
+		free(memory_pool);
+		memory_pool = pnew;
+		current_capacity = used;
+
+		object_node* pobj = class_head;
+		for (int i = 0; pobj != nullptr; pobj = pobj->next, i++)
+		{
+			pobj->this_obj.transfer((object_type*)memory_pool + i);
+		}
+	}
 };
+
+#endif // !__P_OBJECT_POOL__
