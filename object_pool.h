@@ -27,9 +27,6 @@ bool _is_class()
 template<typename object_type>
 class object_class
 {
-	friend class object_ptr<object_type>;
-	friend class object_list_ptr<object_type>;
-	friend class object_pool<object_type>;
 
 protected:
 	object_type* pobj;
@@ -96,7 +93,6 @@ public:
 		delete_object();
 	}
 
-public:
 #ifdef _DEBUG
 	object_class() = default;
 #else
@@ -114,13 +110,6 @@ public:
 	{
 		force_delete();
 	}
-
-#ifdef _DEBUG
-	void test_delete()
-	{
-		delete_object();
-	}
-#endif //_DEBUG
 
 };
 
@@ -253,6 +242,8 @@ protected:
 				pcur->next = pnext->next;
 				delete pnext;
 			}
+			else
+				pcur = pnext;
 		}
 		last_class = pcur;
 		
@@ -305,7 +296,9 @@ public:
 		if (memory_pool == NULL) throw bad_alloc();
 	}
 
-	object_pool(const obj_pool& objp) = delete;
+	object_pool(const obj_pool&) = delete;
+
+	object_pool& operator=(const obj_pool&) = delete;
 
 	~object_pool()
 	{
