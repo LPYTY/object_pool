@@ -5,13 +5,15 @@
 #include "framework.h"
 #include "object_pool.h"
 
-int nnnn = 10000000;
+int nnnn = 100;
 object_pool<string> op_s(nnnn);
+object_pool<int> op_i;
 
 int main()
 {
 	clock_t c1b, c1e, c2b, c2e, c3b, c3e;
 
+	auto pl = op_i.get_object_list(10, 1);
 	auto ppp = new object_ptr<string>*[nnnn];
 
 	cerr << "step1\n";

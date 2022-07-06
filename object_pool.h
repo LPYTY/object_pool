@@ -52,12 +52,12 @@ public:
 		deleted = false;
 	}
 
-	void add_ptr()
+	void add_ref()
 	{
 		ref_cnt++;
 	}
 
-	void remove_ptr()
+	void remove_ref()
 	{
 		if (ref_cnt > 0)ref_cnt--;
 	}
@@ -117,21 +117,23 @@ protected:
 	obj_class* pobj_class;
 	bool valid;
 
-public:
-	void check_valid() const
+protected:
+	void assert_valid() const
 	{
 		if (!valid)
 			throw runtime_error("Invalid pointer!");
 	}
+
+public:
 	object_type& operator*() const
 	{
-		check_valid();
+		assert_valid();
 		return (*(pobj_class->get_object()));
 	}
 
 	object_type* operator->() const
 	{
-		check_valid();
+		assert_valid();
 		return pobj_class->get_object();
 	}
 
@@ -140,9 +142,10 @@ public:
 		auto last_pobj_class = pobj_class;
 		pobj_class = src.pobj_class;
 		valid = src.valid;
-		pobj_class->add_ptr();
+		pobj_class->add_ref();
 		if (last_pobj_class != nullptr)
-			last_pobj_class->remove_ptr();
+			last_pobj_class->remove_ref();
+		return *this;
 	}
 
 	object_ptr(const obj_ptr& src)
@@ -151,19 +154,30 @@ public:
 		(*this) = src;
 	}
 
+	object_ptr(obj_class* _pclass)
+	{
+		pobj_class = _pclass;
+		pobj_class->create_object();
+		pobj_class->add_ref();
+		valid = true;
+	}
+
 	template<typename... Args>
-	object_ptr(obj_class* _pclass, Args&& ... args)
+	object_ptr(obj_class* _pclass, Args&&... args)
 	{
 		pobj_class = _pclass;
 		pobj_class->create_object(std::forward<Args>(args)...);
-		pobj_class->add_ptr();
+		pobj_class->add_ref();
 		valid = true;
 	}
 
 	virtual ~object_ptr()
 	{
-		pobj_class->remove_ptr();
-		pobj_class->delete_object();
+		if (valid)
+		{
+			pobj_class->remove_ref();
+			pobj_class->delete_object();
+		}
 	}
 
 	void destroy()
@@ -193,23 +207,22 @@ protected:
 	size_t __end;
 	obj_ptr* ptr_list;
 
-protected:
+public:
+
 	template<typename... Args>
-	void add_obj(obj_class* _pclass, Args&& ... args)
+	void add_obj(obj_class* _pclass, Args&&... args)
 	{
-		if (__end >= size) throw overflow_error("Too many objects!");
-		new(ptr_list + __end) obj_ptr(_pclass, std::forward<Args>(args)...);
-		end++;
+		if (__end >= __size) throw overflow_error("Too many objects!");
+		new(ptr_list + __end) object_ptr(_pclass, std::forward<Args&&>(args)...);
+		__end++;
 	}
 
-public:
-	
 	object_list_ptr& operator=(const obj_list_ptr& src)
 	{
 		__size = src.__size;
 		__end = src.__end;
 		auto last_list = ptr_list;
-		ptr_list = malloc(_size * sizeof(obj_ptr));
+		ptr_list = (obj_ptr*)malloc(__size * sizeof(obj_ptr));
 		if (!ptr_list) throw bad_alloc();
 		for (int i = 0; i < __end; i++)
 		{
@@ -217,6 +230,7 @@ public:
 		}
 		for (int i = 0; i < __end; i++)
 		{
+			if (last_list == nullptr) break;
 			last_list[i].~obj_ptr();
 			free(last_list);
 		}
@@ -241,7 +255,7 @@ public:
 
 	object_list_ptr(size_t _size) :__size(_size), __end(0)
 	{
-		ptr_list = malloc(_size * sizeof(obj_ptr));
+		ptr_list = (obj_ptr*)malloc(_size * sizeof(obj_ptr));
 		if (!ptr_list) throw bad_alloc();
 	}
 
@@ -409,26 +423,28 @@ public:
 	}
 
 	template<typename... Args>
-	obj_list_ptr get_object_list(size_t count, Args&& ... args)
+	obj_list_ptr get_object_list(size_t _count, Args&& ... args)
 	{
-		if (count == 0) throw runtime_error("Count cannot be 0!");
+		if (_count == 0) throw runtime_error("Count cannot be 0!");
 		auto pre_class = last_class;
 		bool succeeded = false;
-		succeeded = create_objects(count);
+		succeeded = create_objects(_count);
 		if (!succeeded)
 			gc();
-		succeeded = create_objects(count);
+		pre_class = last_class;
+		succeeded = create_objects(_count);
 		while (!succeeded)
 		{
 			extend();
-			succeeded = create_objects(count);
+			pre_class = last_class;
+			succeeded = create_objects(_count);
 		}
 
-		obj_list_ptr plist(count);
+		obj_list_ptr plist(_count);
 		auto pcur = pre_class->next;
-		for (int i = 0; i < count; i++)
+		for (int i = 0; i < _count; i++)
 		{
-			plist.add_obj(obj_ptr(&(last_class->this_obj), std::forward<Args>(args)...));
+			plist.add_obj(&(last_class->this_obj), std::forward<Args>(args)...);
 			pcur = pcur->next;
 		}
 
