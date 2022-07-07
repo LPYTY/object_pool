@@ -14,6 +14,8 @@ int main()
 	clock_t c1b, c1e, c2b, c2e, c3b, c3e;
 
 	auto pl = op_i.get_object_list(10, 1);
+	cout << pl[1] << endl;
+
 	auto ppp = new object_ptr<string>*[nnnn];
 
 	cerr << "step1\n";

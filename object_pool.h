@@ -180,6 +180,11 @@ public:
 		}
 	}
 
+	bool is_valid() const
+	{
+		return valid;
+	}
+
 	void destroy()
 	{
 		pobj_class->delete_object();
