@@ -40,6 +40,7 @@ int main()
 	for (int i = 0; i < nnnn; i++)
 	{
 		delete ppp[i];
+		cout << i << endl;
 	}
 	delete[] ppp;
 	system("pause");

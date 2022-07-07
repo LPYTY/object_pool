@@ -20,6 +20,9 @@ template<typename object_type>
 class object_list_ptr;
 
 template<typename object_type>
+class limited_object_pool;
+
+template<typename object_type>
 class object_pool;
 
 template<typename object_type>
@@ -175,8 +178,7 @@ public:
 	{
 		if (valid)
 		{
-			pobj_class->remove_ref();
-			pobj_class->delete_object();
+			destroy();
 		}
 	}
 
@@ -187,9 +189,13 @@ public:
 
 	void destroy()
 	{
-		pobj_class->delete_object();
-		pobj_class = nullptr;
-		valid = false;
+		if (valid)
+		{
+			pobj_class->remove_ref();
+			pobj_class->delete_object();
+			pobj_class = nullptr;
+			valid = false;
+		}
 	}
 
 	object_type* unsafe_ptr() const
@@ -327,7 +333,8 @@ protected:
 	void gc()
 	{
 		if (class_head == nullptr) return;
-		object_node* pcur = class_head, * pnext;
+		object_node* pcur = class_head , * pnext;
+		
 		while (true)
 		{
 			pnext = pcur->next;
@@ -340,12 +347,30 @@ protected:
 			else
 				pcur = pnext;
 		}
+
+		if (class_head->this_obj.is_deleted())
+		{
+			if (pcur == class_head)
+			{
+				delete class_head;
+				class_head = nullptr;
+				last_class = nullptr;
+				return;
+			}
+			pnext = class_head->next;
+			delete class_head;
+			class_head = pnext;
+		}
+		
 		last_class = pcur;
 		
 		int cnt = 0;
-		for (object_node* pobj = class_head; pobj != nullptr; pobj = pobj->next, cnt++)
+		for (object_node* pobj = class_head; pobj; pobj = pobj->next, cnt++)
 		{
-			memcpy((object_type*)memory_pool + cnt, pobj->this_obj.get_object(), 1 * object_size);
+			if ((object_type*)memory_pool + cnt == pobj->this_obj.get_object())
+				break;
+			new((object_type*)memory_pool + cnt) object_type(*(pobj->this_obj.get_object()));
+			pobj->this_obj.get_object()->~object_type();
 		}
 		used = cnt;
 	}
@@ -373,7 +398,11 @@ protected:
 	{
 		void* pnew = malloc(2 * current_capacity * object_size);
 		if (pnew == NULL) throw bad_alloc();
-		memcpy(pnew, memory_pool, used * object_size);
+		for (int i = 0; i < used; i++)
+		{
+			new((object_type*)pnew + i) object_type( * ((object_type*)memory_pool + i));
+			((object_type*)memory_pool + i)->~object_type();
+		}
 		free(memory_pool);
 		memory_pool = pnew;
 		current_capacity *= 2;
@@ -444,7 +473,7 @@ public:
 			pre_class = last_class;
 			succeeded = create_objects(_count);
 		}
-
+		;
 		obj_list_ptr plist(_count);
 		auto pcur = pre_class->next;
 		for (int i = 0; i < _count; i++)
@@ -463,7 +492,11 @@ public:
 			return false;
 		void* pnew = malloc(used * object_size);
 		if (pnew == NULL) throw bad_alloc();
-		memcpy(pnew, memory_pool, used * object_size);
+		for (int i = 0; i < used; i++)
+		{
+			new((object_type*)pnew + i) object_type(*((object_type*)memory_pool + i));
+			((object_type*)memory_pool + i)->~object_type();
+		}
 		free(memory_pool);
 		memory_pool = pnew;
 		current_capacity = used;
@@ -473,6 +506,128 @@ public:
 		{
 			pobj->this_obj.transfer((object_type*)memory_pool + i);
 		}
+	}
+};
+
+template<typename object_type>
+class limited_object_pool
+{
+protected:
+	typedef limited_object_pool<object_type> obj_pool;
+	typedef object_ptr<object_type> obj_ptr;
+	typedef object_list_ptr<object_type> obj_list_ptr;
+	typedef object_class<object_type> obj_class;
+
+protected:
+	struct object_node
+	{
+		obj_class this_obj;
+		object_node* next;
+
+		object_node(object_type* pobj) :this_obj(pobj), next(nullptr) {}
+	};
+
+protected:
+	object_node* class_head;
+	object_node* last_class;
+	void* memory_pool;
+	size_t current_capacity;
+	size_t used;
+
+public:
+	const static size_t object_size = sizeof(object_type);
+	const static size_t default_pool_size = 50;
+
+protected:
+	void add_new_class(object_type* pobj)
+	{
+		if (class_head == nullptr)
+		{
+			class_head = new object_node(pobj);
+			last_class = class_head;
+		}
+		else
+		{
+			last_class->next = new object_node(pobj);
+			last_class = last_class->next;
+		}
+	}
+
+
+
+	void* get_first_available() const
+	{
+		if (used >= current_capacity) return nullptr;
+		return (object_type*)memory_pool + used;
+	}
+
+	bool create_objects(size_t num)
+	{
+		void* pstart = get_first_available();
+		if (!pstart || num == 0) return false;
+		if (used + num > current_capacity) return false;
+		for (int i = 0; i < num; i++)
+		{
+			add_new_class(new((object_type*)pstart + i) object_type);
+		}
+		used += num;
+		return true;
+	}
+
+public:
+	limited_object_pool(size_t init_pool_size = default_pool_size) :class_head(nullptr), last_class(nullptr), current_capacity(init_pool_size), used(0)
+	{
+		memory_pool = malloc(init_pool_size * object_size);
+		if (memory_pool == NULL) throw bad_alloc();
+	}
+
+	limited_object_pool(const limited_object_pool&) = delete;
+
+	limited_object_pool& operator=(const limited_object_pool&) = delete;
+
+	~limited_object_pool()
+	{
+		object_node* pcur = class_head, * pnext;
+		while (pcur != nullptr)
+		{
+			pnext = pcur->next;
+			delete pcur;
+			pcur = pnext;
+		}
+
+		free(memory_pool);
+	}
+
+	template<typename... Args>
+	obj_ptr get_object(Args&& ... args)
+	{
+		if (!create_objects(1))
+			throw overflow_error("No enough capacity!");
+		return obj_ptr(&(last_class->this_obj), std::forward<Args>(args)...);
+	}
+
+	template<typename... Args>
+	obj_list_ptr get_object_list(size_t _count, Args&& ... args)
+	{
+		if (_count == 0) throw runtime_error("Count cannot be 0!");
+		auto pre_class = last_class;
+		if (!create_objects(_count))
+			throw overflow_error("No enough capacity!");
+		;
+		obj_list_ptr plist(_count);
+		auto pcur = pre_class->next;
+		for (int i = 0; i < _count; i++)
+		{
+			plist.add_obj(&(last_class->this_obj), std::forward<Args>(args)...);
+			pcur = pcur->next;
+		}
+
+		return plist;
+	}
+
+	size_t capacity() const
+	{
+		return current_capacity;
 	}
 };
 
