@@ -28,14 +28,21 @@ class object_pool;
 template<typename object_type>
 class object_class
 {
+	friend class object_ptr<object_type>;
+	friend class limited_object_pool<object_type>;
+	friend class object_pool<object_type>;
 
 protected:
 	object_type* pobj;
 	size_t ref_cnt;
 	bool deleted;
 
-
+#ifdef _DEBUG
 public:
+#else
+protected:
+#endif
+
 	object_type* get_object() const
 	{
 		if (is_deleted()) throw(runtime_error("null pointer"));
@@ -94,6 +101,7 @@ public:
 		delete_object();
 	}
 
+public:
 	object_class() = delete;
 
 	object_class(object_type* _pobj)
@@ -355,6 +363,7 @@ protected:
 				delete class_head;
 				class_head = nullptr;
 				last_class = nullptr;
+				used = 0;
 				return;
 			}
 			pnext = class_head->next;
@@ -507,6 +516,16 @@ public:
 			pobj->this_obj.transfer((object_type*)memory_pool + i);
 		}
 	}
+
+	size_t used_cnt() const
+	{
+		return used;
+	}
+
+	size_t capacity() const
+	{
+		return current_capacity;
+	}
 };
 
 template<typename object_type>
@@ -623,6 +642,11 @@ public:
 		}
 
 		return plist;
+	}
+
+	size_t used_cnt() const
+	{
+		return used;
 	}
 
 	size_t capacity() const

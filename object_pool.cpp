@@ -11,38 +11,63 @@ object_pool<int> op_i;
 
 int main()
 {
-	clock_t c1b, c1e, c2b, c2e, c3b, c3e;
+	string *buf = (string *)malloc(sizeof(string));
 
-	auto pl = op_i.get_object_list(10, 1);
-	cout << pl[1] << endl;
+	do
+	{
+		// Construct
+		object_class<string> stringClass(buf);
 
-	auto ppp = new object_ptr<string>*[nnnn];
+		stringClass.create_object("asdf");
 
-	cerr << "step1\n";
-	c1b = clock();
-	for (int i = 0; i < nnnn; i++)
+		// Get value
+		string *stringObject = stringClass.get_object();
+		cout << *stringObject << endl;
+
+		// Multicast
+		object_ptr<string> ptr1(&stringClass);
+		cout << *ptr1 << endl;
+
+		object_ptr<string> ptr2 = ptr1;
+		*ptr2 = "fdsa";
+		cout << *ptr1 << "; " << *ptr2 << endl;
+	} while (0);
+
+	free(buf);
+
+	// Object Pool test
+	object_pool<string> pool(1);
+
+	do
 	{
-		ppp[i] = new object_ptr<string>(op_s.get_object());
-	}
-	c1e = clock();
-	cerr << "step2\n";
-	c2b = clock();
-	for (int i = 0; i < nnnn; i += 2)
+		auto o = pool.get_object();
+		*o = "1234";
+	} while (0);
+
+	// Test gc
+	do
 	{
-		ppp[i]->destroy();
-	}
-	c2e = clock();
-	cerr << "step3\n";
-	c3b = clock();
-	object_ptr<string> p1 = op_s.get_object(), p2 = op_s.get_object();
-	c3e = clock();
-	cout << double(c1e - c1b) / CLOCKS_PER_SEC << endl << double(c2e - c2b) / CLOCKS_PER_SEC << endl << double(c3e - c3b) / CLOCKS_PER_SEC << endl;
-	for (int i = 0; i < nnnn; i++)
+		auto o = pool.get_object();
+		cout << *o << endl;
+		*o = "4321";
+		cout << *o << endl;
+	} while (0);
+
+	// Test expand
+	do
 	{
-		delete ppp[i];
-		cout << i << endl;
-	}
-	delete[] ppp;
-	system("pause");
+		auto o1 = pool.get_object();
+		*o1 = "abc";
+		auto o2 = pool.get_object();
+		*o2 = "def";
+		cout << *o1 << *o2 << endl;
+	} while (0);
+
+	// Test shrink
+	do
+	{
+		pool.shrink(true);
+	} while (0);
+
 	return 0;
 }
