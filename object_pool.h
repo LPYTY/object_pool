@@ -6,6 +6,7 @@
 #ifndef __P_OBJECT_POOL__
 #define __P_OBJECT_POOL__
 
+#include <new>
 #include <cstdlib>
 #include <stdexcept>
 #include <type_traits>
