@@ -32,7 +32,7 @@ class object_class
 	friend class limited_object_pool<object_type>;
 	friend class object_pool<object_type>;
 
-protected:
+private:
 	object_type* pobj;
 	size_t ref_cnt;
 	bool deleted;
@@ -40,7 +40,7 @@ protected:
 #ifdef _DEBUG
 public:
 #else
-protected:
+private:
 #endif
 
 	object_type* get_object() const
@@ -111,6 +111,8 @@ public:
 		deleted = true;
 	}
 
+	object_class& operator=(const object_class&) = delete;
+
 	~object_class()
 	{
 		force_delete();
@@ -121,14 +123,24 @@ public:
 template<typename object_type>
 class object_ptr
 {
-protected:
+private:
 	typedef object_class<object_type> obj_class;
 	typedef object_ptr<object_type> obj_ptr;
-protected:
+
+private:
 	obj_class* pobj_class;
 	bool valid;
 
-protected:
+private:
+	void copy_init(const obj_ptr& src)
+	{
+		auto last_pobj_class = pobj_class;
+		pobj_class = src.pobj_class;
+		valid = src.valid;
+		pobj_class->add_ref();
+		if (last_pobj_class != nullptr)
+			last_pobj_class->remove_ref();
+	}
 	void assert_valid() const
 	{
 		if (!valid)
@@ -150,19 +162,14 @@ public:
 
 	obj_ptr& operator=(const obj_ptr& src)
 	{
-		auto last_pobj_class = pobj_class;
-		pobj_class = src.pobj_class;
-		valid = src.valid;
-		pobj_class->add_ref();
-		if (last_pobj_class != nullptr)
-			last_pobj_class->remove_ref();
+		copy_init(src);
 		return *this;
 	}
 
 	object_ptr(const obj_ptr& src)
 	{
 		pobj_class = nullptr;
-		(*this) = src;
+		copy_init(src);
 	}
 
 	object_ptr(obj_class* _pclass)
@@ -216,27 +223,20 @@ public:
 template<typename object_type>
 class object_list_ptr
 {
-protected:
+	friend class object_pool<object_type>;
+	friend class limited_object_pool<object_type>;
+private:
 	typedef object_class<object_type>  obj_class;
 	typedef object_ptr<object_type>  obj_ptr;
 	typedef object_list_ptr<object_type> obj_list_ptr;
 
-protected:
+private:
 	size_t __size;
 	size_t __end;
 	obj_ptr* ptr_list;
 
-public:
-
-	template<typename... Args>
-	void add_obj(obj_class* _pclass, Args&&... args)
-	{
-		if (__end >= __size) throw overflow_error("Too many objects!");
-		new(ptr_list + __end) object_ptr(_pclass, std::forward<Args&&>(args)...);
-		__end++;
-	}
-
-	object_list_ptr& operator=(const obj_list_ptr& src)
+private:
+	void copy_init(const obj_list_ptr& src)
 	{
 		__size = src.__size;
 		__end = src.__end;
@@ -253,6 +253,20 @@ public:
 			last_list[i].~obj_ptr();
 			free(last_list);
 		}
+	}
+
+	template<typename... Args>
+	void add_obj(obj_class* _pclass, Args&&... args)
+	{
+		if (__end >= __size) throw overflow_error("Too many objects!");
+		new(ptr_list + __end) object_ptr(_pclass, std::forward<Args&&>(args)...);
+		__end++;
+	}
+
+public:
+	object_list_ptr& operator=(const obj_list_ptr& src)
+	{
+		copy_init(src);
 		return *this;
 	}
 
@@ -280,7 +294,7 @@ public:
 
 	object_list_ptr(const obj_list_ptr& src)
 	{
-		*this = src;
+		copy_init(src);
 	}
 	
 	~object_list_ptr()
@@ -297,13 +311,13 @@ public:
 template<typename object_type>
 class object_pool
 {
-protected:
+private:
 	typedef object_pool<object_type> obj_pool;
 	typedef object_ptr<object_type> obj_ptr;
 	typedef object_list_ptr<object_type> obj_list_ptr;
 	typedef object_class<object_type> obj_class;
 
-protected:
+private:
 	struct object_node
 	{
 		obj_class this_obj;
@@ -312,7 +326,7 @@ protected:
 		object_node(object_type* pobj) :this_obj(pobj), next(nullptr) {}
 	};
 
-protected:
+private:
 	object_node* class_head;
 	object_node* last_class;
 	void* memory_pool;
@@ -323,7 +337,7 @@ public:
 	const static size_t object_size = sizeof(object_type);
 	const static size_t default_pool_size = 50;
 
-protected:
+private:
 	void add_new_class(object_type* pobj)
 	{
 		if (class_head == nullptr)
@@ -531,13 +545,13 @@ public:
 template<typename object_type>
 class limited_object_pool
 {
-protected:
+private:
 	typedef limited_object_pool<object_type> obj_pool;
 	typedef object_ptr<object_type> obj_ptr;
 	typedef object_list_ptr<object_type> obj_list_ptr;
 	typedef object_class<object_type> obj_class;
 
-protected:
+private:
 	struct object_node
 	{
 		obj_class this_obj;
@@ -546,7 +560,7 @@ protected:
 		object_node(object_type* pobj) :this_obj(pobj), next(nullptr) {}
 	};
 
-protected:
+private:
 	object_node* class_head;
 	object_node* last_class;
 	void* memory_pool;
@@ -557,7 +571,7 @@ public:
 	const static size_t object_size = sizeof(object_type);
 	const static size_t default_pool_size = 50;
 
-protected:
+private:
 	void add_new_class(object_type* pobj)
 	{
 		if (class_head == nullptr)
