@@ -182,7 +182,7 @@ public:
 		valid = true;
 	}
 
-	virtual ~object_ptr()
+	~object_ptr()
 	{
 		if (valid)
 		{
@@ -283,7 +283,7 @@ public:
 		*this = src;
 	}
 	
-	virtual ~object_list_ptr()
+	~object_list_ptr()
 	{
 		for (int i = 0; i < __end; i++)
 		{
